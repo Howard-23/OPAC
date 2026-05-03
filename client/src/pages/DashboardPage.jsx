@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { getAuthors } from "../api/authorsApi";
 import { getBooks } from "../api/booksApi";
 import { getRentals, getRentalSummary } from "../api/rentalsApi";
 import Panel from "../components/ui/Panel";
@@ -16,20 +15,23 @@ function DashboardPage() {
 
   useEffect(() => {
     async function loadDashboard() {
-      const [authors, books, rentals, summary, digitalBooks] = await Promise.all([
-        getAuthors({ page: 1, pageSize: 1 }),
-        getBooks({ page: 1, pageSize: 1 }),
+      const [books, rentals, summary] = await Promise.all([
+        getBooks({ all: true }),
         getRentals({ page: 1, pageSize: 5 }),
-        getRentalSummary(),
-        getBooks({ page: 1, pageSize: 1, format: "digital" })
+        getRentalSummary()
       ]);
 
+      const linkedAuthors = new Set(
+        books.data.map((book) => book.author_id).filter(Boolean)
+      ).size;
+      const digitalBooks = books.data.filter((book) => book.format === "digital").length;
+
       setStats({
-        books: books.meta.totalItems,
-        authors: authors.meta.totalItems,
+        books: books.data.length,
+        authors: linkedAuthors,
         activeRentals: summary.activeCount,
         overdueRentals: summary.overdueCount,
-        digitalBooks: digitalBooks.meta.totalItems,
+        digitalBooks,
         recentRentals: rentals.data
       });
     }
@@ -42,7 +44,7 @@ function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {[
           ["Books", stats.books, "Cataloged items across the collection"],
-          ["Authors", stats.authors, "Authority records in the system"],
+          ["Authors", stats.authors, "Authors linked to cataloged books"],
           ["Active Rentals", stats.activeRentals, "Currently checked-out items"],
           ["Overdue", stats.overdueRentals, "Loans past their due date"],
           ["Digital Titles", stats.digitalBooks, "Online-access resources"]

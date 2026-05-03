@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 
-import { createAuthor, getAuthors } from "../../api/authorsApi";
+import { createAuthor, deleteAuthor, getAuthors } from "../../api/authorsApi";
 import { createBook, deleteBook, getBooks, lookupBookByIsbn, updateBook } from "../../api/booksApi";
 import PaginationControls from "../../components/ui/PaginationControls";
 import ScannerInput from "../../components/ui/ScannerInput";
 import Panel from "../../components/ui/Panel";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { validateBookForm } from "../../utils/validation";
+
+const LOOKUP_AUTHOR_OPTION = "__lookup_author__";
 
 const initialForm = {
   isbn: "",
@@ -23,6 +25,7 @@ const initialForm = {
 function BooksPage() {
   const [books, setBooks] = useState([]);
   const [authors, setAuthors] = useState([]);
+  const [lookupAuthor, setLookupAuthor] = useState(null);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState("");
@@ -77,23 +80,34 @@ function BooksPage() {
 
   function resetForm() {
     setForm(initialForm);
+    setLookupAuthor(null);
     setEditingId(null);
     setErrors({});
   }
 
-  async function ensureAuthor(author) {
-    if (!author.first_name || !author.last_name) {
-      return "";
+  function findMatchingAuthor(author) {
+    if (!author?.first_name || !author?.last_name) {
+      return null;
     }
 
-    const matchingAuthor = authors.find(
-      (entry) =>
-        entry.first_name.toLowerCase() === author.first_name.toLowerCase() &&
-        entry.last_name.toLowerCase() === author.last_name.toLowerCase()
+    return (
+      authors.find(
+        (entry) =>
+          entry.first_name.toLowerCase() === author.first_name.toLowerCase() &&
+          entry.last_name.toLowerCase() === author.last_name.toLowerCase()
+      ) || null
     );
+  }
+
+  async function ensureAuthor(author) {
+    if (!author.first_name || !author.last_name) {
+      return { id: "", created: false };
+    }
+
+    const matchingAuthor = findMatchingAuthor(author);
 
     if (matchingAuthor) {
-      return matchingAuthor.id;
+      return { id: matchingAuthor.id, created: false };
     }
 
     const createdAuthor = await createAuthor(author);
@@ -102,7 +116,7 @@ function BooksPage() {
         `${left.last_name}${left.first_name}`.localeCompare(`${right.last_name}${right.first_name}`)
       )
     );
-    return createdAuthor.id;
+    return { id: createdAuthor.id, created: true };
   }
 
   async function handleLookup() {
@@ -116,16 +130,29 @@ function BooksPage() {
 
     try {
       const result = await lookupBookByIsbn(form.isbn);
-      const nextAuthorId = await ensureAuthor(result.author);
+      const matchingAuthor = findMatchingAuthor(result.author);
+      const hasLookupAuthor = Boolean(result.author?.first_name && result.author?.last_name);
+
+      setLookupAuthor(!matchingAuthor && hasLookupAuthor ? result.author : null);
 
       setForm((current) => ({
         ...current,
         title: result.title || current.title,
         publisher: result.publisher || current.publisher,
         publication_year: result.publication_year || current.publication_year,
-        author_id: nextAuthorId || current.author_id
+        author_id:
+          matchingAuthor?.id ||
+          (hasLookupAuthor
+            ? LOOKUP_AUTHOR_OPTION
+            : current.author_id === LOOKUP_AUTHOR_OPTION
+              ? ""
+              : current.author_id)
       }));
-      setMessage("Book details imported from Google Books.");
+      setMessage(
+        hasLookupAuthor
+          ? "Book details imported from Google Books."
+          : "Book details imported. Select an author before saving."
+      );
     } catch (error) {
       setMessage(error.response?.data?.message || "ISBN lookup failed.");
     } finally {
@@ -136,22 +163,37 @@ function BooksPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     const nextErrors = validateBookForm(form);
+    let createdAuthorId = null;
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
     }
 
-    const payload = {
-      ...form,
-      publication_year: form.publication_year ? Number(form.publication_year) : null,
-      access_url: form.format === "digital" ? form.access_url : null
-    };
-
     setErrors({});
     setMessage("");
 
     try {
+      let authorId = form.author_id;
+
+      if (authorId === LOOKUP_AUTHOR_OPTION) {
+        const ensuredAuthor = await ensureAuthor(lookupAuthor || {});
+        authorId = ensuredAuthor.id;
+        createdAuthorId = ensuredAuthor.created ? ensuredAuthor.id : null;
+      }
+
+      if (!authorId) {
+        setErrors({ author_id: "Author is required." });
+        return;
+      }
+
+      const payload = {
+        ...form,
+        author_id: authorId,
+        publication_year: form.publication_year ? Number(form.publication_year) : null,
+        access_url: form.format === "digital" ? form.access_url : null
+      };
+
       if (editingId) {
         await updateBook(editingId, payload);
         setMessage("Book updated.");
@@ -159,12 +201,20 @@ function BooksPage() {
         await createBook(payload);
         setMessage("Book created.");
       }
-
-      resetForm();
-      await loadBooks(page, search, statusFilter, formatFilter);
     } catch (error) {
+      if (createdAuthorId) {
+        try {
+          await deleteAuthor(createdAuthorId);
+        } catch {
+          // Best-effort cleanup if author creation succeeded but book save failed.
+        }
+      }
       setMessage(error.response?.data?.details?.join(" ") || error.response?.data?.message || "Book save failed.");
+      return;
     }
+
+    resetForm();
+    await loadBooks(page, search, statusFilter, formatFilter);
   }
 
   async function handleDelete(id) {
@@ -179,6 +229,7 @@ function BooksPage() {
 
   function handleEdit(book) {
     setEditingId(book.id);
+    setLookupAuthor(null);
     setForm({
       isbn: book.isbn || "",
       title: book.title || "",
@@ -255,6 +306,11 @@ function BooksPage() {
               }
             >
               <option value="">Select an author</option>
+              {lookupAuthor ? (
+                <option value={LOOKUP_AUTHOR_OPTION}>
+                  {lookupAuthor.last_name}, {lookupAuthor.first_name} (from lookup)
+                </option>
+              ) : null}
               {authors.map((author) => (
                 <option key={author.id} value={author.id}>
                   {author.last_name}, {author.first_name}
@@ -262,6 +318,9 @@ function BooksPage() {
               ))}
             </select>
             {errors.author_id ? <p className="mt-2 text-sm text-rosewood">{errors.author_id}</p> : null}
+            {lookupAuthor && form.author_id === LOOKUP_AUTHOR_OPTION ? (
+              <p className="mt-2 text-sm text-slate-500">This author will be created only when the book is saved.</p>
+            ) : null}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
