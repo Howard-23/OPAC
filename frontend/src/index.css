@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: "Aptos", "Segoe UI Variable Text", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(200, 155, 60, 0.18), transparent 35%),
+    radial-gradient(circle at right, rgba(58, 108, 86, 0.28), transparent 30%),
+    linear-gradient(180deg, #0a0f0f 0%, #101918 100%);
+  color: #f8f3e7;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: transparent;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+.panel {
+  @apply rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md shadow-panel;
+}
+
+.field {
+  @apply w-full rounded-2xl border border-white/10 bg-ink-900/80 px-4 py-3 text-sm text-white outline-none transition focus:border-brass-400 focus:ring-2 focus:ring-brass-500/30;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-2xl bg-brass-500 px-4 py-3 font-medium text-ink-950 transition hover:bg-brass-400 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-4 py-3 font-medium text-white transition hover:bg-white/10;
+}
+
+.btn-danger {
+  @apply inline-flex items-center justify-center rounded-2xl bg-clay-500 px-4 py-3 font-medium text-white transition hover:bg-clay-300;
+}
+
+.label {
+  @apply mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-brass-200/80;
+}
+
+table {
+  border-collapse: collapse;
+}
+
